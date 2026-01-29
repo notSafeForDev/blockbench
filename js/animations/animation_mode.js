@@ -328,10 +328,20 @@ export const Animator = {
 
 			// Put this node right after the ik source
 			let source_index = nodes.findIndex(e => e.uuid === node.ik_source);
-			nodes.splice(i, 1);
-			nodes.splice(source_index + 1, 0, node);
+			if (i < source_index) {
+				let parent = node;
+				let nodes_to_shift = [parent];
+				nodes.splice(nodes.indexOf(parent), 1);
+				while (nodes.indexOf(parent) < source_index && parent.parent !== "root") {
+					parent = parent.parent;
+					nodes.splice(nodes.indexOf(parent), 1);
+					nodes_to_shift.push(parent);
+				}
+				source_index = nodes.findIndex(e => e.uuid === node.ik_source);
+				nodes_to_shift.forEach(shifted_node => nodes.splice(source_index, 0, shifted_node));
+			}
 
-			// If there is a ik pole target, put it right before this node
+			// If there is an ik pole target, put it right before this node
 			if (node.ik_pole_target) {
 				let pole_index = nodes.findIndex(e => e.uuid === node.ik_pole_target);
 

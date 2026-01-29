@@ -228,11 +228,11 @@
 	</script>
 
 	<script>
-		// if (window.require) {
-		// 	require("@electron/remote")
-		// 		.getCurrentWindow()
-		// 		.webContents.openDevTools({ mode: "detach" })
-		// }
+		if (window.require) {
+			require("@electron/remote")
+				.getCurrentWindow()
+				.webContents.openDevTools({ mode: "detach" })
+		}
 	</script>
 </body>
 </html>

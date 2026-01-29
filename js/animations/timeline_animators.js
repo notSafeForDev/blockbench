@@ -828,7 +828,7 @@ export class NullObjectAnimator extends BoneAnimator {
 	}
 	displayIK(get_samples) {
 		let null_object = this.getElement();
-		let target = [...Group.all, ...ArmatureBone.all, ...Locator.all].find(node => node.uuid == null_object.ik_target);
+		let target = [...Group.all, ...ArmatureBone.all, ...Locator.all, ...NullObject.all].find(node => node.uuid == null_object.ik_target);
 		if (!null_object || !target) return;
 
 		let bones = [];
@@ -908,12 +908,10 @@ export class NullObjectAnimator extends BoneAnimator {
 
 			// Point root towards IK Target
 			if (bones.length >= 1) {
-				const second_bone  = bones.length >= 2 ? bones[1].mesh : target;
-
 				const root_pos = root.getWorldPosition(new THREE.Vector3());
-				const second_bone_pos = second_bone.getWorldPosition(new THREE.Vector3());
+				const end_pos = target.mesh.getWorldPosition(new THREE.Vector3());
 
-				const current_dir = second_bone_pos.clone().sub(root_pos).normalize();
+				const current_dir = end_pos.clone().sub(root_pos).normalize();
 				const target_dir = ik_target.clone().sub(root_pos).normalize();
 
 				const world_delta = new THREE.Quaternion().setFromUnitVectors(current_dir, target_dir);
@@ -1001,8 +999,21 @@ export class NullObjectAnimator extends BoneAnimator {
 				second_bone.updateMatrixWorld();
 			}
 
+			if (target_original_quaternion) {
+				const parentWorldQuat = new THREE.Quaternion();
+				target.mesh.parent.getWorldQuaternion(parentWorldQuat);
+
+				const localQuat = parentWorldQuat
+					.invert()
+					.multiply(target_original_quaternion);
+
+				target.mesh.quaternion.copy(localQuat);
+			}
+
 			return;
 		}
+
+		if (!bones.length) return;
 
 		this.solver.add(this.chain, ik_target, true);
 		this.solver.meshChains[0].forEach(mesh => {

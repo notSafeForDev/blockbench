@@ -201,7 +201,14 @@ BARS.defineActions(function() {
 		searchable: true,
 		children() {
 			let nodes = [];
-			iterate(NullObject.selected[0].getParentArray(), 0);
+
+			let origin = NullObject.selected[0];
+
+			while (origin.parent !== "root") {
+				origin = origin.parent;
+			}
+
+			iterate([origin], 0);
 
 			function iterate(arr, level) {
 				arr.forEach(node => {
