@@ -2162,6 +2162,8 @@
 	"action.timeline_focus.hide_empty": "Hide empty channels",
 	"action.set_ik_target": "Set IK Target",
 	"action.set_ik_target.desc": "Select the target bone that should be moved by this null object via Inverse Kinematics",
+	"action.set_ik_pole_target": "Set IK Pole Target",
+	"action.set_ik_pole_target.desc": "Select the target element that the chain should bend towards via Inverse Kinematics",
 	"action.set_ik_source": "Set IK Root",
 	"action.set_ik_source.desc": "Select the root bone of the chain that should be moved by this null object via Inverse Kinematics",
 	"action.lock_motion_trail": "Lock Motion Trail",

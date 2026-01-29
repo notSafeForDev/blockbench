@@ -316,7 +316,34 @@ export const Animator = {
 			animations.remove(Animation.selected);
 			animations.push(Animation.selected);
 		}
-		[...Group.all, ...Outliner.elements].forEach(node => {
+
+		let nodes = [...Group.all, ...Outliner.elements];
+
+		for (let i = 0; i < nodes.length; i++) {
+			let node = nodes[i];
+
+			if (!node.ik_source) {
+				continue
+			}
+
+			// Put this node right after the ik source
+			let source_index = nodes.findIndex(e => e.uuid === node.ik_source);
+			nodes.splice(i, 1);
+			nodes.splice(source_index + 1, 0, node);
+
+			// If there is a ik pole target, put it right before this node
+			if (node.ik_pole_target) {
+				let pole_index = nodes.findIndex(e => e.uuid === node.ik_pole_target);
+
+				let poleNode = nodes[pole_index];
+				nodes.splice(pole_index, 1);
+
+				let currentIkIndex = nodes.findIndex(e => e.uuid === node.uuid);
+				nodes.splice(currentIkIndex, 0, poleNode);
+			}
+		}
+
+		nodes.forEach(node => {
 			if (!node.constructor.animator) return;
 			Animator.resetLastValues();
 			animations.forEach((animation, anim_i) => {

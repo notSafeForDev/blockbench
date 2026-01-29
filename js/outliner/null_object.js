@@ -88,6 +88,7 @@ export class NullObject extends OutlinerElement {
 	NullObject.prototype.menu = new Menu([
 			new MenuSeparator('ik'),
 			'set_ik_target',
+			'set_ik_pole_target',
 			'set_ik_source',
 			{
 				id: 'lock_ik_target_rotation',
@@ -113,6 +114,7 @@ export class NullObject extends OutlinerElement {
 	new Property(NullObject, 'string', 'name', {default: 'null_object'})
 	new Property(NullObject, 'vector', 'position')
 	new Property(NullObject, 'string', 'ik_target', {condition: () => Format.animation_mode});
+	new Property(NullObject, 'string', 'ik_pole_target', {condition: () => Format.animation_mode});
 	new Property(NullObject, 'string', 'ik_source', {condition: () => Format.animation_mode});
 	new Property(NullObject, 'boolean', 'lock_ik_target_rotation')
 	new Property(NullObject, 'boolean', 'visibility', {default: true});
@@ -229,6 +231,52 @@ BARS.defineActions(function() {
 		},
 		click(event) {
 			new Menu('set_ik_target', this.children(this), {searchable: true}).show(event.target, this);
+		}
+	})
+
+	new Action('set_ik_pole_target', {
+		icon: 'fa-bullseye',
+		category: 'edit',
+		condition() {
+			let action = BarItems.set_ik_pole_target;
+			return NullObject.selected.length && action.children(action).length
+		},
+		searchable: true,
+		children() {
+			let nodes = [];
+			iterate(NullObject.selected[0].getParentArray(), 0);
+
+			function iterate(arr, level) {
+				arr.forEach(node => {
+					if (node.constructor.animator || node instanceof Locator) {
+						if (level) nodes.push(node);
+					}
+					if (node instanceof NullObject && !nodes.includes(node)) {
+						nodes.push(node);
+					}
+					if (node.children) {
+						iterate(node.children, level+1);
+					}
+				})
+			}
+			return nodes.map(node => {
+				return {
+					name: node.name + (node.uuid == NullObject.selected[0].ik_pole_target ? ' (✔)' : ''),
+					icon: node.icon,
+					marked: node.uuid == NullObject.selected[0].ik_pole_target,
+					color: markerColors[node.color % markerColors.length]?.standard,
+					click() {
+						Undo.initEdit({elements: NullObject.selected});
+						NullObject.selected.forEach(null_object => {
+							null_object.ik_pole_target = node.uuid;
+						})
+						Undo.finishEdit('Set IK pole target');
+					}
+				}
+			})
+		},
+		click(event) {
+			new Menu('set_ik_pole_target', this.children(this), {searchable: true}).show(event.target, this);
 		}
 	})
 

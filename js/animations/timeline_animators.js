@@ -836,6 +836,12 @@ export class NullObjectAnimator extends BoneAnimator {
 		let bone_references = [];
 		let current = target.parent;
 
+		let ik_pole_target_node = [...Group.all, ...ArmatureBone.all, ...Locator.all, ...NullObject.all].find(node => node.uuid == null_object.ik_pole_target);
+		let ik_pole_target = null;
+		if (ik_pole_target_node) {
+			ik_pole_target = new THREE.Vector3().copy(ik_pole_target_node.getWorldCenter(true));
+		}
+
 		let source;
 		if (null_object.ik_source) {
 			source = [...Group.all, ...ArmatureBone.all].find(node => node.uuid == null_object.ik_source);
@@ -879,7 +885,126 @@ export class NullObjectAnimator extends BoneAnimator {
 			})
 		})
 
-		this.solver.add(this.chain, ik_target , true);
+		// Custom Inverse Kinematics for when an IK pole target is set
+		if (ik_pole_target_node) {
+			const root = bones[0].mesh;
+			const target_pos = ik_target.clone();
+
+			const lengths = bones.map((b, i) => {
+				const start_pos = b.mesh.getWorldPosition(new THREE.Vector3());
+				const end_pos = (i < bones.length - 1)
+					? bones[i+1].mesh.getWorldPosition(new THREE.Vector3())
+					: target.mesh.getWorldPosition(new THREE.Vector3());
+				return start_pos.distanceTo(end_pos);
+			});
+			const total_length = lengths.reduce((a, b) => a + b, 0);
+
+			// actual distance from root to target (straight-line distance)
+			const root_pos = root.getWorldPosition(new THREE.Vector3());
+			const dist_to_target = root_pos.distanceTo(target_pos);
+
+			// clamp to total length
+			const clamped_dist = Math.min(dist_to_target, total_length);
+
+			// Point root towards IK Target
+			if (bones.length >= 1) {
+				const second_bone  = bones.length >= 2 ? bones[1].mesh : target;
+
+				const root_pos = root.getWorldPosition(new THREE.Vector3());
+				const second_bone_pos = second_bone.getWorldPosition(new THREE.Vector3());
+
+				const current_dir = second_bone_pos.clone().sub(root_pos).normalize();
+				const target_dir = ik_target.clone().sub(root_pos).normalize();
+
+				const world_delta = new THREE.Quaternion().setFromUnitVectors(current_dir, target_dir);
+				const parent_world_quat = root.parent.getWorldQuaternion(new THREE.Quaternion());
+				const local_delta = parent_world_quat.clone().invert().multiply(world_delta).multiply(parent_world_quat);
+
+				root.quaternion.premultiply(local_delta);
+				root.updateMatrixWorld();
+			}
+
+			// Twist root towards IK Pole Target
+			if (bones.length >= 1 && ik_pole_target) {
+				const root = bones[0].mesh;
+
+				// world positions
+				const rootPos = root.getWorldPosition(new THREE.Vector3());
+				const limbDir = ik_target.clone().sub(rootPos).normalize();
+				const poleDir = ik_pole_target.clone().sub(rootPos).normalize();
+
+				// desired plane normal
+				let desiredNormal = new THREE.Vector3().crossVectors(limbDir, poleDir);
+				if (desiredNormal.lengthSq() < 1e-6) return;
+				desiredNormal.normalize();
+
+				// root forward in world space
+				const rootWorldQuat = root.getWorldQuaternion(new THREE.Quaternion());
+				const rootForward = new THREE.Vector3(-1, 0, 0).applyQuaternion(rootWorldQuat);
+
+				// project vectors into plane perpendicular to limb
+				const projForward = rootForward.clone().projectOnPlane(limbDir).normalize();
+				const projDesired = desiredNormal.clone().projectOnPlane(limbDir).normalize();
+
+				// signed angle in plane
+				const cross = new THREE.Vector3().crossVectors(projForward, projDesired);
+				let angle = Math.atan2(cross.dot(limbDir), projForward.dot(projDesired));
+
+				// clamp twist angle to [-90°, 90°]
+				if (angle > Math.PI / 2) angle -= Math.PI;
+				if (angle < -Math.PI / 2) angle += Math.PI;
+
+				// world-space twist quaternion
+				const twistWorld = new THREE.Quaternion().setFromAxisAngle(limbDir, angle);
+
+				// convert twist to local space
+				const parentWorldQuat = root.parent.getWorldQuaternion(new THREE.Quaternion());
+				const twistLocal = parentWorldQuat.clone().invert()
+					.multiply(twistWorld)
+					.multiply(parentWorldQuat);
+
+				root.quaternion.premultiply(twistLocal);
+				root.updateMatrixWorld();
+			}
+
+			// Bend the limb
+			if (bones.length === 2) {
+				const second_bone  = bones[1].mesh;
+
+				const L1 = lengths[0];
+				const L2 = lengths[1];
+				const d  = clamped_dist;
+
+				// Check if pole is behind the limb
+				let flip = false;
+				if (ik_pole_target) {
+					const root_pos = root.getWorldPosition(new THREE.Vector3());
+					const pole_dir = ik_pole_target.clone().sub(root_pos).normalize();
+					const root_forward = new THREE.Vector3(0, 0, 1).applyQuaternion(root.getWorldQuaternion(new THREE.Quaternion()));
+					if (root_forward.dot(pole_dir) < 0) {
+						flip = true;
+					}
+				}
+
+				// Root
+				let cos_theta_root = (L1*L1 + d*d - L2*L2) / (2 * L1 * d);
+				cos_theta_root = Math.min(Math.max(cos_theta_root, -1), 1);
+				const theta_root = Math.acos(cos_theta_root);
+				root.rotation.x += -theta_root * (flip ? -1 : 1);
+				root.updateMatrixWorld();
+
+				// Second bone
+				let cos_theta_second = (L1*L1 + L2*L2 - d*d) / (2 * L1 * L2);
+				cos_theta_second = Math.min(Math.max(cos_theta_second, -1), 1);
+				const theta_second = Math.acos(cos_theta_second);
+				second_bone.rotation.x = Math.PI - theta_second * (flip ? -1 : 1);
+				second_bone.updateMatrixWorld();
+			}
+
+			return;
+		}
+
+		this.solver.add(this.chain, ik_target, true);
 		this.solver.meshChains[0].forEach(mesh => {
 			mesh.visible = false;
 		})
