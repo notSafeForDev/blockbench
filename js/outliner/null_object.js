@@ -87,9 +87,9 @@ export class NullObject extends OutlinerElement {
 	];
 	NullObject.prototype.menu = new Menu([
 			new MenuSeparator('ik'),
-			'set_ik_target',
-			'set_ik_pole_target',
 			'set_ik_source',
+			'set_ik_pole_target',
+			'set_ik_target',
 			{
 				id: 'lock_ik_target_rotation',
 				name: 'menu.null_object.lock_ik_target_rotation',
@@ -105,6 +105,8 @@ export class NullObject extends OutlinerElement {
 					if (Modes.animate) Animator.preview();
 				}
 			},
+			'move_to_ik_target',
+			'set_ik_min_bend',
 			...Outliner.control_menu_group,
 			new MenuSeparator('manage'),
 			'rename',
@@ -116,6 +118,7 @@ export class NullObject extends OutlinerElement {
 	new Property(NullObject, 'string', 'ik_target', {condition: () => Format.animation_mode});
 	new Property(NullObject, 'string', 'ik_pole_target', {condition: () => Format.animation_mode});
 	new Property(NullObject, 'string', 'ik_source', {condition: () => Format.animation_mode});
+	new Property(NullObject, 'number', 'ik_min_bend', {condition: () => Format.animation_mode});
 	new Property(NullObject, 'boolean', 'lock_ik_target_rotation')
 	new Property(NullObject, 'boolean', 'visibility', {default: true});
 	new Property(NullObject, 'boolean', 'locked');
@@ -202,13 +205,20 @@ BARS.defineActions(function() {
 		children() {
 			let nodes = [];
 
-			let origin = NullObject.selected[0];
-
-			while (origin.parent !== "root") {
-				origin = origin.parent;
+			if (!NullObject.selected[0].ik_source) {
+				let origin = NullObject.selected[0];
+				while (origin.parent !== "root") {
+					origin = origin.parent;
+				}
+				iterate([origin], 0);
 			}
 
-			iterate([origin], 0);
+			if (NullObject.selected[0].ik_source) {
+				const ik_source = Group.all.find(g => g.uuid === NullObject.selected[0].ik_source);
+				if (ik_source) {
+					iterate([ik_source], 0);
+				}
+			}
 
 			function iterate(arr, level) {
 				arr.forEach(node => {
@@ -297,7 +307,12 @@ BARS.defineActions(function() {
 		searchable: true,
 		children() {
 			let nodes = [];
-			iterate(Outliner.root)
+
+			if (NullObject.selected[0].parent && NullObject.selected[0].parent !== "root") {
+				iterate(NullObject.selected[0].parent.children);
+			} else {
+				iterate(Outliner.root)
+			}
 
 			function iterate(arr) {
 				arr.forEach(node => {
@@ -328,7 +343,70 @@ BARS.defineActions(function() {
 		click(event) {
 			new Menu('set_ik_source', this.children(this), {searchable: true}).show(event.target, this);
 		}
+	})
 
+	new Action('move_to_ik_target', {
+		icon: 'fa-crosshairs',
+		category: 'edit',
+		// keybind: new Keybind({key: 46}, {
+		// 	keep_vertices: 'alt'
+		// }),
+		condition: () => !Dialog.open && NullObject.selected[0].ik_target,
+		click(event) {
+			const ik_target_node = [...Group.all, ...NullObject.all].find(node => node.uuid === NullObject.selected[0].ik_target);
+			if (ik_target_node) {
+				Undo.initEdit({elements: NullObject.selected});
+				const world_position = ik_target_node.mesh.getWorldPosition(new THREE.Vector3());
+				const selected = NullObject.selected[0];
+				const parent = selected.mesh.parent;
+				const local_position = parent ? parent.worldToLocal(world_position.clone()) : world_position;
+				selected.position.V3_set(local_position);
+				Canvas.gizmos.forEach(gizmo => {
+					if (gizmo.updateSelection) {
+						gizmo.updateSelection();
+					}
+				});
+				Canvas.updateView({
+					elements: Outliner.selected,
+					element_aspects: {transform: true, geometry: true},
+					groups: Group.all.filter(g => g.selected),
+					group_aspects: {transform: true}
+				});
+				Undo.finishEdit('Move to IK target');
+			}
+		}
+	})
+
+	new Action('set_ik_min_bend', {
+		icon: 'percent',
+		category: 'edit',
+		// keybind: new Keybind({key: 46}, {
+		// 	keep_vertices: 'alt'
+		// }),
+		condition: () => !Dialog.open && (NullObject.selected[0].ik_source || NullObject.selected[0].ik_target),
+		click(event) {	
+			let dialog = new Dialog({
+				id: 'set_ik_min_bend',
+				title: 'action.set_ik_min_bend',
+				width: 540,
+				form: {
+					percentage: {
+						type: 'number',
+						label: 'generic.percentage',
+						value: (NullObject.selected[0].ik_min_bend || 0) * 100,
+						min: 0,
+						max: 100
+					}
+				},
+				onConfirm: function(formResult) {
+					console.log(formResult.percentage);
+					Undo.initEdit({elements: NullObject.selected});
+					NullObject.selected[0].ik_min_bend = formResult.percentage / 100;
+					Undo.finishEdit('Set IK minimum bend');
+				}
+			})
+			dialog.show()
+		}
 	})
 })
 

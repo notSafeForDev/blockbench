@@ -26,6 +26,8 @@ export const Animator = {
 		}
 	},
 	join() {
+		Animator.setBindRotations();
+
 		if (isApp && (Format.id == 'bedrock' || Format.id == 'bedrock_old') && !Project.BedrockEntityManager.initialized_animations) {
 			Project.BedrockEntityManager.initAnimations();
 		}
@@ -95,6 +97,18 @@ export const Animator = {
 			let anchor = Panels.transform.node.querySelector('#element_origin_toolbar_anchor');
 			if (anchor) anchor.before(Toolbars.element_origin.node);
 		}
+	},
+	setBindRotations() {
+		[...Group.all, ...Outliner.elements].forEach(node => {
+			if (!node.mesh) return;
+			let origin = node;
+			while (origin.parent !== "root") {
+				origin = origin.parent;
+			}
+			const nodeWorldQuat = node.mesh.getWorldQuaternion(new THREE.Quaternion());
+			const originWorldQuat = origin.mesh.getWorldQuaternion(new THREE.Quaternion());
+			node.bind_rotation = originWorldQuat.clone().invert().multiply(nodeWorldQuat);
+		});
 	},
 	showDefaultPose(reduced_updates) {
 		[...Group.all, ...Outliner.elements].forEach(node => {
@@ -319,29 +333,26 @@ export const Animator = {
 
 		let nodes = [...Group.all, ...Outliner.elements];
 
+		// TODO: move to join
 		for (let i = 0; i < nodes.length; i++) {
 			let node = nodes[i];
 
-			if (!node.ik_source) {
+			if (!node.ik_source || !node.ik_target) {
 				continue
 			}
 
-			// Put this node right after the ik source
+			let modified = false;
+			
+			// Put this node right before the ik_source
 			let source_index = nodes.findIndex(e => e.uuid === node.ik_source);
-			if (i < source_index) {
-				let parent = node;
-				let nodes_to_shift = [parent];
-				nodes.splice(nodes.indexOf(parent), 1);
-				while (nodes.indexOf(parent) < source_index && parent.parent !== "root") {
-					parent = parent.parent;
-					nodes.splice(nodes.indexOf(parent), 1);
-					nodes_to_shift.push(parent);
-				}
+			if (i !== source_index - 1) {
+				nodes.splice(i, 1);
 				source_index = nodes.findIndex(e => e.uuid === node.ik_source);
-				nodes_to_shift.forEach(shifted_node => nodes.splice(source_index, 0, shifted_node));
+				nodes.splice(source_index, 0, node);
+				modified = true;
 			}
 
-			// If there is an ik pole target, put it right before this node
+			// If there is an ik_pole_target, put it right before this node
 			if (node.ik_pole_target) {
 				let pole_index = nodes.findIndex(e => e.uuid === node.ik_pole_target);
 
@@ -350,6 +361,10 @@ export const Animator = {
 
 				let currentIkIndex = nodes.findIndex(e => e.uuid === node.uuid);
 				nodes.splice(currentIkIndex, 0, poleNode);
+			}
+
+			if (modified) {
+				i--;
 			}
 		}
 

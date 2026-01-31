@@ -868,43 +868,9 @@ export class NullObjectAnimator extends BoneAnimator {
 			if (bone.mesh.fix_rotation) bone.mesh.rotation.copy(bone.mesh.fix_rotation);
 		})
 
-		bones.forEach((bone, i) => {
-			let startPoint = new FIK.V3(0,0,0).copy(bone.mesh.getWorldPosition(new THREE.Vector3()));
-			let endPoint = new FIK.V3(0,0,0).copy(bones[i+1] ? bones[i+1].mesh.getWorldPosition(new THREE.Vector3()) : null_object.getWorldCenter(false));
-
-			let ik_bone = new FIK.Bone3D(startPoint, endPoint);
-			this.chain.addBone(ik_bone);
-
-			bone_references.push({
-				bone,
-				last_diff: new THREE.Vector3(
-					(bones[i+1] ? bones[i+1] : target).origin[0] - bone.origin[0],
-					(bones[i+1] ? bones[i+1] : target).origin[1] - bone.origin[1],
-					(bones[i+1] ? bones[i+1] : target).origin[2] - bone.origin[2]
-				).normalize()
-			})
-		})
-
 		// Custom Inverse Kinematics for when an IK pole target is set
 		if (ik_pole_target_node) {
 			const root = bones[0].mesh;
-			const target_pos = ik_target.clone();
-
-			const lengths = bones.map((b, i) => {
-				const start_pos = b.mesh.getWorldPosition(new THREE.Vector3());
-				const end_pos = (i < bones.length - 1)
-					? bones[i+1].mesh.getWorldPosition(new THREE.Vector3())
-					: target.mesh.getWorldPosition(new THREE.Vector3());
-				return start_pos.distanceTo(end_pos);
-			});
-			const total_length = lengths.reduce((a, b) => a + b, 0);
-
-			// actual distance from root to target (straight-line distance)
-			const root_pos = root.getWorldPosition(new THREE.Vector3());
-			const dist_to_target = root_pos.distanceTo(target_pos);
-
-			// clamp to total length
-			const clamped_dist = Math.min(dist_to_target, total_length);
 
 			// Point root towards IK Target
 			if (bones.length >= 1) {
@@ -965,24 +931,82 @@ export class NullObjectAnimator extends BoneAnimator {
 				root.updateMatrixWorld();
 			}
 
+			function angleDelta(from, to) {
+				let diff = to - from;
+				diff = (diff + Math.PI) % (2 * Math.PI) - Math.PI;
+				return diff;
+			}
+
+			// Straighten the limb
+			for (let i = bones.length - 1; i >= 1; i--) {
+				let previous = bones[i - 1].mesh;
+				let current = bones[i].mesh;
+				let next = i < bones.length - 1 ? bones[i + 1].mesh : target.mesh;
+
+				let previous_local = previous.getWorldPosition(new THREE.Vector3()).applyMatrix4(current.matrixWorld.clone().invert());
+				let next_local = next.getWorldPosition(new THREE.Vector3()).applyMatrix4(current.matrixWorld.clone().invert());
+
+				let angle_to_previous = Math.atan2(previous_local.y, previous_local.z);
+				let angle_to_next = Math.atan2(next_local.y, next_local.z);
+
+				let angle_difference = angleDelta(angle_to_previous, angle_to_next);
+
+				let correction_angle = angle_difference < 0 ? angle_difference + Math.PI : angle_difference - Math.PI;
+
+				current.rotation.x += correction_angle;
+				current.updateMatrixWorld();
+			}
+
+			// Point the root towards ik_target
+			let target_local = target.mesh.getWorldPosition(new THREE.Vector3()).applyMatrix4(root.matrixWorld.clone().invert());
+			let ik_target_local = null_object.mesh.getWorldPosition(new THREE.Vector3()).applyMatrix4(root.matrixWorld.clone().invert());
+
+			let angle_to_target = Math.atan2(target_local.y, target_local.z);
+			let angle_to_ik_target = Math.atan2(ik_target_local.y, ik_target_local.z);
+
+			let correction_angle = angleDelta(angle_to_ik_target, angle_to_target);
+
+			root.rotation.x += correction_angle;
+
 			// Bend the limb
 			if (bones.length === 2) {
-				const second_bone  = bones[1].mesh;
+				const second_bone = bones[1].mesh;
+
+				const lengths = bones.map((b, i) => {
+					const start_pos = b.mesh.getWorldPosition(new THREE.Vector3());
+					const end_pos = (i < bones.length - 1)
+						? bones[i+1].mesh.getWorldPosition(new THREE.Vector3())
+						: target.mesh.getWorldPosition(new THREE.Vector3());
+					return start_pos.distanceTo(end_pos);
+				});
+				const total_length = lengths.reduce((a, b) => a + b, 0);
+
+				// actual distance from root to target (straight-line distance)
+				const root_pos = root.getWorldPosition(new THREE.Vector3());
+				const dist_to_target = root_pos.distanceTo(ik_target);
+
+				// clamp to total length
+				const clamped_dist = Math.min(dist_to_target, total_length * (1 - null_object.ik_min_bend));
 
 				const L1 = lengths[0];
 				const L2 = lengths[1];
-				const d  = clamped_dist;
+				const d = clamped_dist;
 
-				// Check if pole is behind the limb
-				let flip = false;
-				if (ik_pole_target) {
-					const root_pos = root.getWorldPosition(new THREE.Vector3());
-					const pole_dir = ik_pole_target.clone().sub(root_pos).normalize();
-					const root_forward = new THREE.Vector3(0, 0, 1).applyQuaternion(root.getWorldQuaternion(new THREE.Quaternion()));
-					if (root_forward.dot(pole_dir) < 0) {
-						flip = true;
-					}
+				let ik_target_local = root.getWorldPosition(new THREE.Vector3()).applyMatrix4(null_object.mesh.matrixWorld.clone().invert());
+				let ik_pole_target_local = root.getWorldPosition(new THREE.Vector3()).applyMatrix4(ik_pole_target_node.mesh.matrixWorld.clone().invert());
+
+				let angle_to_target = Math.atan2(ik_target_local.y, ik_target_local.z);
+				let angle_to_pole_target = Math.atan2(ik_pole_target_local.y, ik_pole_target_local.z);
+
+				let angle_difference = angleDelta(angle_to_target, angle_to_pole_target);
+				if (angle_difference < -Math.PI) {
+					angle_difference += Math.PI * 2;
 				}
+				if (angle_difference > Math.PI) {
+					angle_difference -= Math.PI * 2;
+				}
+
+				const flip = angle_difference < 0;
 
 				// Root
 				let cos_theta_root = (L1*L1 + d*d - L2*L2) / (2 * L1 * d);
@@ -995,25 +1019,60 @@ export class NullObjectAnimator extends BoneAnimator {
 				let cos_theta_second = (L1*L1 + L2*L2 - d*d) / (2 * L1 * L2);
 				cos_theta_second = Math.min(Math.max(cos_theta_second, -1), 1);
 				const theta_second = Math.acos(cos_theta_second);
-				second_bone.rotation.x = Math.PI - theta_second * (flip ? -1 : 1);
+				second_bone.rotation.x += Math.PI - theta_second * (flip ? -1 : 1);
 				second_bone.updateMatrixWorld();
 			}
+			
+			// Reset target rotation to bind_rotation
+			if (null_object.lock_ik_target_rotation && target.bind_rotation) {
+				// Find origin
+				let origin = target;
+				while (origin.parent !== "root") {
+					origin = origin.parent;
+				}
 
-			if (target_original_quaternion) {
+				// World rotations
+				const originWorldQuat = new THREE.Quaternion();
+				origin.mesh.getWorldQuaternion(originWorldQuat);
+
 				const parentWorldQuat = new THREE.Quaternion();
 				target.mesh.parent.getWorldQuaternion(parentWorldQuat);
 
+				// Desired world rotation = origin * bind_rotation
+				const desiredWorldQuat = originWorldQuat
+					.clone()
+					.multiply(target.bind_rotation);
+
+				// Convert world -> local (parent space)
 				const localQuat = parentWorldQuat
+					.clone()
 					.invert()
-					.multiply(target_original_quaternion);
+					.multiply(desiredWorldQuat);
 
 				target.mesh.quaternion.copy(localQuat);
+				target.mesh.updateMatrixWorld(true);
 			}
 
 			return;
 		}
 
-		if (!bones.length) return;
+		// Memory-leak, the time it takes to compute this increases every frame
+		bones.forEach((bone, i) => {
+			let startPoint = new FIK.V3(0,0,0).copy(bone.mesh.getWorldPosition(new THREE.Vector3()));
+			let endPoint = new FIK.V3(0,0,0).copy(bones[i+1] ? bones[i+1].mesh.getWorldPosition(new THREE.Vector3()) : null_object.getWorldCenter(false));
+
+			let ik_bone = new FIK.Bone3D(startPoint, endPoint);
+			this.chain.addBone(ik_bone);
+
+			bone_references.push({
+				bone,
+				last_diff: new THREE.Vector3(
+					(bones[i+1] ? bones[i+1] : target).origin[0] - bone.origin[0],
+					(bones[i+1] ? bones[i+1] : target).origin[1] - bone.origin[1],
+					(bones[i+1] ? bones[i+1] : target).origin[2] - bone.origin[2]
+				).normalize()
+			})
+		})
 
 		this.solver.add(this.chain, ik_target, true);
 		this.solver.meshChains[0].forEach(mesh => {
