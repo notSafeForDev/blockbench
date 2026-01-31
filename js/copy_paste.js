@@ -331,22 +331,25 @@ export const Clipbench = {
 			} catch (err) {}
 		}
 		if (Clipbench.groups) {
-			function iterate(obj, parent) {
+			function iterate(obj, parent, name_prefix) {
 				if (obj.children) {
 					let copy = new Group(obj).addTo(parent).init();
 					new_groups.push(copy);
 					copy._original_name = copy.name;
+					copy.name = name_prefix + copy.name;
 					copy.createUniqueName();
 					Property.resetUniqueValues(Group, copy);
 
 					if (obj.children && obj.children.length) {
 						obj.children.forEach((child) => {
-							iterate(child, copy)
+							iterate(child, copy, name_prefix)
 						})
 					}
 					return copy;
 				} else if (OutlinerElement.isTypePermitted(obj.type)) {
 					var copy = OutlinerElement.fromSave(obj).addTo(parent).markAsSelected();
+					copy._original_name = copy.name;
+					copy.name = name_prefix + copy.name;
 					copy.createUniqueName();
 					Property.resetUniqueValues(copy.constructor, copy);
 					copy.preview_controller.updateTransform(copy);
@@ -354,7 +357,8 @@ export const Clipbench = {
 				}
 			}
 			for (let group_template of Clipbench.groups) {
-				let copy = iterate(group_template, target);
+				let name_prefix = group_template.name + "-";
+				let copy = iterate(group_template, target, name_prefix);
 				copy.multiSelect();
 			}
 
